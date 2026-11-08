@@ -1,68 +1,65 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './ItemList.css';
 import SearchFilters from './SearchFilters';
 import AnimatedList from './AnimatedList';
 import { getItems, deleteItem } from '../services/firestoreService';
+import {
+  EMPTY_FILTERS,
+  filterItems,
+  formatDate,
+  formatPrice,
+  isExpiringSoon,
+  isLowStock,
+} from '../utils/inventory';
+
+const activateOnKey = (handler) => (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    handler();
+  }
+};
 
 function ItemList() {
   const { currentUser } = useAuth();
+  const userEmail = currentUser?.email;
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filters, setFilters] = useState({
-    search: '',
-    category: '',
-    lowStock: false,
-    expiringSoon: false
-  });
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [searchInput, setSearchInput] = useState('');
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeOverview, setActiveOverview] = useState('items');
 
-  // Fetch items when filters change or user changes
   useEffect(() => {
-    if (currentUser?.email) {
-      fetchItems();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, currentUser]);
+    if (!userEmail) return undefined;
 
-  const fetchItems = async () => {
-    if (!currentUser?.email) return;
-    
-    try {
-      setLoading(true);
-      const data = await getItems(currentUser.email, filters);
-      setItems(data);
-      setError(null);
-      // Trigger categories refresh after items are fetched
-      setRefreshTrigger(prev => prev + 1);
-    } catch (err) {
-      setError(err.message || 'Failed to fetch items. Please try again.');
-      console.error('❌ Error fetching items:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    let cancelled = false;
+    setLoading(true);
+    getItems(userEmail)
+      .then((data) => {
+        if (cancelled) return;
+        setItems(data);
+        setError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Failed to fetch items. Please try again.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString();
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [userEmail]);
 
-  const formatPrice = (price) => `$${parseFloat(price).toFixed(2)}`;
-  const isLowStock = (quantity) => quantity < 10;
-  const isExpiringSoon = (expirationDate) => {
-    if (!expirationDate) return false;
-    const today = new Date();
-    const twoWeeksFromNow = new Date(today);
-    twoWeeksFromNow.setDate(today.getDate() + 14);
-    const expDate = new Date(expirationDate);
-    return expDate >= today && expDate <= twoWeeksFromNow;
-  };
+  const filteredItems = useMemo(() => filterItems(items, filters), [items, filters]);
+  const categories = useMemo(
+    () => [...new Set(items.map((item) => item.category))].sort(),
+    [items]
+  );
 
   const toggleLowStockFilter = () => {
     setFilters((prev) => ({ ...prev, lowStock: !prev.lowStock }));
@@ -72,17 +69,13 @@ function ItemList() {
     setFilters((prev) => ({ ...prev, expiringSoon: !prev.expiringSoon }));
   };
 
-  const showTotalItemsOverview = () => {
-    setActiveOverview('items');
+  const showOverview = (overview) => {
+    setActiveOverview(overview);
     setSearchInput('');
-    setFilters({ search: '', category: '', lowStock: false, expiringSoon: false });
+    setFilters(EMPTY_FILTERS);
   };
 
-  const showCategoriesOverview = () => {
-    setActiveOverview('categories');
-    setSearchInput('');
-    setFilters({ search: '', category: '', lowStock: false, expiringSoon: false });
-  };
+  const handleSelectItem = useCallback((item) => navigate(`/edit/${item.id}`), [navigate]);
 
   const handleDelete = async (itemId, itemName) => {
     if (!window.confirm(`Are you sure you want to delete "${itemName}"? This action cannot be undone.`)) {
@@ -90,12 +83,10 @@ function ItemList() {
     }
 
     try {
-      await deleteItem(itemId, currentUser.email);
-      // Refresh the items list after deletion
-      fetchItems();
+      await deleteItem(itemId, userEmail);
+      setItems((prev) => prev.filter((item) => item.id !== itemId));
     } catch (err) {
       alert(`Error deleting item: ${err.message}`);
-      console.error('Error deleting item:', err);
     }
   };
 
@@ -117,15 +108,9 @@ function ItemList() {
     );
   }
 
-  const lowStockCount = items.filter(item => isLowStock(item.quantity)).length;
-  
-  // Calculate total unique categories
-  const uniqueCategories = new Set(items.map(item => item.category));
-  const totalCategories = uniqueCategories.size;
-  
-  // Calculate items expiring soon (within next 14 days)
-  const expiringSoonCount = items.filter(item => isExpiringSoon(item.expiration_date)).length;
-  const categorySummary = Array.from(uniqueCategories).map((category) => ({
+  const lowStockCount = items.filter((item) => isLowStock(item.quantity)).length;
+  const expiringSoonCount = items.filter((item) => isExpiringSoon(item.expiration_date)).length;
+  const categorySummary = categories.map((category) => ({
     category,
     count: items.filter((item) => item.category === category).length
   }));
@@ -150,13 +135,8 @@ function ItemList() {
             aria-pressed={activeOverview === 'items'}
             aria-label="Show all items"
             className={`stat-card stat-card-interactive${activeOverview === 'items' ? ' stat-card-active' : ''}`}
-            onClick={showTotalItemsOverview}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                showTotalItemsOverview();
-              }
-            }}
+            onClick={() => showOverview('items')}
+            onKeyDown={activateOnKey(() => showOverview('items'))}
           >
             <span className="stat-label">Total Items</span>
             <span className="stat-value">{items.length}</span>
@@ -168,16 +148,11 @@ function ItemList() {
             aria-pressed={activeOverview === 'categories'}
             aria-label="Show total categories view"
             className={`stat-card stat-card-interactive${activeOverview === 'categories' ? ' stat-card-active' : ''}`}
-            onClick={showCategoriesOverview}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                showCategoriesOverview();
-              }
-            }}
+            onClick={() => showOverview('categories')}
+            onKeyDown={activateOnKey(() => showOverview('categories'))}
           >
             <span className="stat-label">Total Categories</span>
-            <span className="stat-value">{totalCategories}</span>
+            <span className="stat-value">{categories.length}</span>
             <span className="stat-hint">{activeOverview === 'categories' ? 'Showing categories only' : 'Click to view categories'}</span>
           </div>
           {lowStockCount > 0 && (
@@ -192,12 +167,7 @@ function ItemList() {
               }
               className={`stat-card warning stat-card-interactive${filters.lowStock ? ' stat-card-active' : ''}`}
               onClick={toggleLowStockFilter}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  toggleLowStockFilter();
-                }
-              }}
+              onKeyDown={activateOnKey(toggleLowStockFilter)}
             >
               <span className="stat-label">Low Stock Alerts</span>
               <span className="stat-value">{lowStockCount}</span>
@@ -215,12 +185,7 @@ function ItemList() {
             }
             className={`stat-card danger stat-card-interactive${filters.expiringSoon ? ' stat-card-active' : ''}`}
             onClick={toggleExpiringSoonFilter}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                toggleExpiringSoonFilter();
-              }
-            }}
+            onKeyDown={activateOnKey(toggleExpiringSoonFilter)}
           >
             <span className="stat-label">Expiring Soon</span>
             <span className="stat-value">{expiringSoonCount}</span>
@@ -234,8 +199,7 @@ function ItemList() {
         setFilters={setFilters}
         searchInput={searchInput}
         setSearchInput={setSearchInput}
-        userEmail={currentUser?.email}
-        refreshTrigger={refreshTrigger}
+        categories={categories}
       />
 
       {items.length === 0 ? (
@@ -251,14 +215,15 @@ function ItemList() {
             </div>
           ))}
         </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="empty-state">
+          <p>No items match the current filters.</p>
+        </div>
       ) : (
         <div className="animated-items-container">
           <AnimatedList
-            items={items}
-            onItemSelect={(item) => {
-              // Navigate to edit page when item is selected
-              navigate(`/edit/${item.id}`);
-            }}
+            items={filteredItems}
+            onItemSelect={handleSelectItem}
             renderItem={(item, index, isSelected) => (
               <div className={`animated-item-card ${isLowStock(item.quantity) ? 'low-stock' : ''} ${isSelected ? 'selected' : ''}`}>
                 <div className="item-card-header">

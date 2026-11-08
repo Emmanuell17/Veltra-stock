@@ -27,10 +27,3 @@ export const getApiUrl = (endpoint) => {
   const baseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
   return `${baseUrl}/${cleanEndpoint}`;
 };
-
-// Log API configuration for debugging
-console.log('🔧 API Configuration:', {
-  baseUrl: API_BASE_URL || 'Using proxy (localhost:5001)',
-  environment: process.env.NODE_ENV || 'development',
-  hasApiUrl: !!process.env.REACT_APP_API_URL
-});

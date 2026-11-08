@@ -72,15 +72,6 @@ function App() {
   );
 }
 
-// Add error boundary for better debugging
-window.addEventListener('error', (e) => {
-  console.error('Global error:', e.error);
-});
-
-window.addEventListener('unhandledrejection', (e) => {
-  console.error('Unhandled promise rejection:', e.reason);
-});
-
 export default App;
 
 

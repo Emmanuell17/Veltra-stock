@@ -69,7 +69,7 @@ function Assistant() {
       const { reply } = await sendAssistantMessage({
         messages: nextMessages.map(({ role, content }) => ({ role, content })),
         inventorySummary,
-        userEmail: currentUser.email,
+        user: currentUser,
       });
 
       setMessages((prev) => [

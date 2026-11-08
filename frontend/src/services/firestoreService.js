@@ -3,6 +3,7 @@ import {
   query,
   where,
   getDocs,
+  getDoc,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -13,78 +14,63 @@ import { db } from '../firebase/config';
 
 const ITEMS_COLLECTION = 'grocery_items';
 
-/**
- * Get all items for a user with optional filters
- */
-export const getItems = async (userEmail, filters = {}) => {
-  try {
-    if (!userEmail) {
-      throw new Error('User email is required');
-    }
+const requireEmail = (userEmail) => {
+  if (!userEmail) {
+    throw new Error('User email is required');
+  }
+};
 
-    // Build query (without orderBy to avoid index requirement)
-    // We'll sort client-side instead
-    let q = query(
+const toIsoString = (value) => value?.toDate?.()?.toISOString() ?? value ?? null;
+
+const toDateOnlyString = (value) => {
+  const iso = toIsoString(value);
+  return iso ? String(iso).split('T')[0] : null;
+};
+
+const fromFirestore = (id, data) => ({
+  id,
+  ...data,
+  created_at: toIsoString(data.created_at),
+  updated_at: toIsoString(data.updated_at),
+  expiration_date: toDateOnlyString(data.expiration_date),
+});
+
+const toFirestoreFields = ({ name, category, quantity, price, expiration_date }) => ({
+  name,
+  category,
+  quantity: parseInt(quantity, 10),
+  price: parseFloat(price),
+  expiration_date: expiration_date ? Timestamp.fromDate(new Date(expiration_date)) : null,
+});
+
+const friendlyError = (error, fallback) => {
+  if (error?.code === 'permission-denied') {
+    return new Error(
+      'Permission denied. Sign in with Google and ensure Firestore rules are published in Firebase Console.'
+    );
+  }
+  return new Error(error?.message || fallback);
+};
+
+/**
+ * Get all items for a user, sorted by name.
+ * Sorting is done client-side to avoid requiring a composite Firestore index.
+ */
+export const getItems = async (userEmail) => {
+  try {
+    requireEmail(userEmail);
+
+    const q = query(
       collection(db, ITEMS_COLLECTION),
       where('user_email', '==', userEmail)
     );
-
-    // Execute query
     const querySnapshot = await getDocs(q);
-    let items = [];
+    const items = querySnapshot.docs.map((snapshot) => fromFirestore(snapshot.id, snapshot.data()));
 
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      items.push({
-        id: doc.id,
-        ...data,
-        // Convert Firestore Timestamps to ISO strings
-        created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
-        updated_at: data.updated_at?.toDate?.()?.toISOString() || data.updated_at,
-        expiration_date: data.expiration_date?.toDate?.()?.toISOString()?.split('T')[0] || data.expiration_date
-      });
-    });
-
-    // Apply filters client-side (Firestore doesn't support ILIKE for case-insensitive search)
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      items = items.filter(item => 
-        item.name.toLowerCase().includes(searchLower) ||
-        item.category.toLowerCase().includes(searchLower)
-      );
-    }
-
-    if (filters.category) {
-      items = items.filter(item => item.category === filters.category);
-    }
-
-    if (filters.lowStock === true || filters.lowStock === 'true') {
-      items = items.filter(item => item.quantity < 10);
-    }
-
-    if (filters.expiringSoon === true || filters.expiringSoon === 'true') {
-      const today = new Date();
-      const twoWeeksFromNow = new Date(today);
-      twoWeeksFromNow.setDate(today.getDate() + 14);
-
-      items = items.filter((item) => {
-        if (!item.expiration_date) return false;
-        const expDate = new Date(item.expiration_date);
-        return expDate >= today && expDate <= twoWeeksFromNow;
-      });
-    }
-
-    // Sort by name alphabetically (client-side)
-    items.sort((a, b) => {
-      const nameA = (a.name || '').toLowerCase();
-      const nameB = (b.name || '').toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-
-    return items;
+    return items.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   } catch (error) {
     console.error('Error fetching items:', error);
-    throw error;
+    throw friendlyError(error, 'Failed to fetch items.');
   }
 };
 
@@ -93,22 +79,17 @@ export const getItems = async (userEmail, filters = {}) => {
  */
 export const getItem = async (itemId, userEmail) => {
   try {
-    if (!userEmail) {
-      throw new Error('User email is required');
-    }
+    requireEmail(userEmail);
 
-    // Get all items for user and find the one with matching ID
-    const items = await getItems(userEmail);
-    const item = items.find(i => i.id === itemId);
-
-    if (!item) {
+    const snapshot = await getDoc(doc(db, ITEMS_COLLECTION, itemId));
+    if (!snapshot.exists() || snapshot.data().user_email !== userEmail) {
       throw new Error('Item not found');
     }
 
-    return item;
+    return fromFirestore(snapshot.id, snapshot.data());
   } catch (error) {
     console.error('Error fetching item:', error);
-    throw error;
+    throw friendlyError(error, 'Failed to fetch item.');
   }
 };
 
@@ -117,56 +98,26 @@ export const getItem = async (itemId, userEmail) => {
  */
 export const createItem = async (itemData, userEmail) => {
   try {
-    if (!userEmail) {
-      throw new Error('User email is required');
-    }
+    requireEmail(userEmail);
 
-    const {
-      name,
-      category,
-      quantity,
-      price,
-      expiration_date,
-    } = itemData;
-
+    const { name, category, quantity, price } = itemData;
     if (!name || !category || quantity === undefined || price === undefined) {
       throw new Error('Missing required fields');
     }
 
-    // Prepare data for Firestore
+    const now = Timestamp.now();
     const firestoreData = {
-      name,
-      category,
-      quantity: parseInt(quantity, 10),
-      price: parseFloat(price),
+      ...toFirestoreFields(itemData),
       user_email: userEmail,
-      created_at: Timestamp.now(),
-      updated_at: Timestamp.now(),
+      created_at: now,
+      updated_at: now,
     };
-
-    // Add expiration_date if provided
-    if (expiration_date) {
-      firestoreData.expiration_date = Timestamp.fromDate(new Date(expiration_date));
-    }
 
     const docRef = await addDoc(collection(db, ITEMS_COLLECTION), firestoreData);
-
-    return {
-      id: docRef.id,
-      ...firestoreData,
-      created_at: firestoreData.created_at.toDate().toISOString(),
-      updated_at: firestoreData.updated_at.toDate().toISOString(),
-      expiration_date: firestoreData.expiration_date?.toDate().toISOString().split('T')[0] || null
-    };
+    return fromFirestore(docRef.id, firestoreData);
   } catch (error) {
     console.error('Error creating item:', error);
-    const code = error?.code || '';
-    if (code === 'permission-denied') {
-      throw new Error(
-        'Permission denied. Sign in with Google and ensure Firestore rules are published in Firebase Console.'
-      );
-    }
-    throw new Error(error?.message || 'Failed to save item to Firestore.');
+    throw friendlyError(error, 'Failed to save item to Firestore.');
   }
 };
 
@@ -175,50 +126,23 @@ export const createItem = async (itemData, userEmail) => {
  */
 export const updateItem = async (itemId, itemData, userEmail) => {
   try {
-    if (!userEmail) {
-      throw new Error('User email is required');
-    }
-
-    // First verify the item belongs to the user
     const existingItem = await getItem(itemId, userEmail);
 
-    const {
-      name,
-      category,
-      quantity,
-      price,
-      expiration_date,
-    } = itemData;
-
-    // Prepare data for Firestore
     const firestoreData = {
-      name,
-      category,
-      quantity: parseInt(quantity, 10),
-      price: parseFloat(price),
+      ...toFirestoreFields(itemData),
       updated_at: Timestamp.now(),
     };
 
-    // Add expiration_date if provided
-    if (expiration_date) {
-      firestoreData.expiration_date = Timestamp.fromDate(new Date(expiration_date));
-    } else {
-      firestoreData.expiration_date = null;
-    }
-
-    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
-    await updateDoc(itemRef, firestoreData);
+    await updateDoc(doc(db, ITEMS_COLLECTION, itemId), firestoreData);
 
     return {
-      id: itemId,
       ...existingItem,
-      ...firestoreData,
-      updated_at: firestoreData.updated_at.toDate().toISOString(),
-      expiration_date: firestoreData.expiration_date?.toDate().toISOString().split('T')[0] || null
+      ...fromFirestore(itemId, firestoreData),
+      created_at: existingItem.created_at,
     };
   } catch (error) {
     console.error('Error updating item:', error);
-    throw error;
+    throw friendlyError(error, 'Failed to update item.');
   }
 };
 
@@ -227,37 +151,11 @@ export const updateItem = async (itemId, itemData, userEmail) => {
  */
 export const deleteItem = async (itemId, userEmail) => {
   try {
-    if (!userEmail) {
-      throw new Error('User email is required');
-    }
-
-    // First verify the item belongs to the user
     await getItem(itemId, userEmail);
-
-    const itemRef = doc(db, ITEMS_COLLECTION, itemId);
-    await deleteDoc(itemRef);
-
+    await deleteDoc(doc(db, ITEMS_COLLECTION, itemId));
     return { success: true };
   } catch (error) {
     console.error('Error deleting item:', error);
-    throw error;
-  }
-};
-
-/**
- * Get all unique categories for a user
- */
-export const getCategories = async (userEmail) => {
-  try {
-    if (!userEmail) {
-      throw new Error('User email is required');
-    }
-
-    const items = await getItems(userEmail);
-    const categories = [...new Set(items.map(item => item.category))];
-    return categories.sort();
-  } catch (error) {
-    console.error('Error fetching categories:', error);
-    throw error;
+    throw friendlyError(error, 'Failed to delete item.');
   }
 };

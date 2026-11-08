@@ -1,27 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import './SearchFilters.css';
-import { getCategories } from '../services/firestoreService';
+import { EMPTY_FILTERS } from '../utils/inventory';
 
-function SearchFilters({ filters, setFilters, searchInput, setSearchInput, userEmail, refreshTrigger }) {
-  const [categories, setCategories] = useState([]);
-
-  const fetchCategories = useCallback(async () => {
-    if (!userEmail) return;
-
-    try {
-      const data = await getCategories(userEmail);
-      setCategories(data);
-    } catch (err) {
-      console.error('Error fetching categories:', err);
-    }
-  }, [userEmail]);
-
-  useEffect(() => {
-    if (userEmail) {
-      fetchCategories();
-    }
-  }, [userEmail, refreshTrigger, fetchCategories]);
-
+function SearchFilters({ filters, setFilters, searchInput, setSearchInput, categories }) {
   const handleSearchKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -33,16 +14,10 @@ function SearchFilters({ filters, setFilters, searchInput, setSearchInput, userE
   };
 
   const handleChange = (field, value) => {
-    if (field === 'search') {
-      // Update input value but don't trigger search yet
-      setSearchInput(value);
-    } else {
-      // Other filters update immediately
-      setFilters(prev => ({
-        ...prev,
-        [field]: value
-      }));
-    }
+    setFilters(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
   return (
@@ -54,7 +29,7 @@ function SearchFilters({ filters, setFilters, searchInput, setSearchInput, userE
           id="search"
           placeholder="Search by name or category... (Press Enter)"
           value={searchInput}
-          onChange={(e) => handleChange('search', e.target.value)}
+          onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={handleSearchKeyDown}
         />
       </div>
@@ -84,12 +59,12 @@ function SearchFilters({ filters, setFilters, searchInput, setSearchInput, userE
         </label>
       </div>
 
-      {(filters.search || filters.category || filters.lowStock || filters.expiringSoon) && (
+      {(searchInput || filters.search || filters.category || filters.lowStock || filters.expiringSoon) && (
         <button
           className="btn-clear"
           onClick={() => {
             setSearchInput('');
-            setFilters({ search: '', category: '', lowStock: false, expiringSoon: false });
+            setFilters(EMPTY_FILTERS);
           }}
         >
           Clear Filters

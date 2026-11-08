@@ -4,7 +4,7 @@ import './AnimatedList.css';
 
 const AnimatedItem = ({ children, delay = 0, index, onMouseEnter, onClick }) => {
   const ref = useRef(null);
-  const inView = useInView(ref, { amount: 0.5, triggerOnce: false });
+  const inView = useInView(ref, { amount: 0.5 });
   return (
     <motion.div
       ref={ref}
@@ -21,24 +21,12 @@ const AnimatedItem = ({ children, delay = 0, index, onMouseEnter, onClick }) => 
   );
 };
 
+const isInteractiveTarget = (target) =>
+  target instanceof Element &&
+  (target.isContentEditable || !!target.closest('input, textarea, select, button, a, [role="button"]'));
+
 const AnimatedList = ({
-  items = [
-    'Item 1',
-    'Item 2',
-    'Item 3',
-    'Item 4',
-    'Item 5',
-    'Item 6',
-    'Item 7',
-    'Item 8',
-    'Item 9',
-    'Item 10',
-    'Item 11',
-    'Item 12',
-    'Item 13',
-    'Item 14',
-    'Item 15'
-  ],
+  items = [],
   onItemSelect,
   showGradients = true,
   enableArrowNavigation = true,
@@ -78,11 +66,12 @@ const AnimatedList = ({
   useEffect(() => {
     if (!enableArrowNavigation) return;
     const handleKeyDown = e => {
-      if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) {
+      if (isInteractiveTarget(e.target)) return;
+      if (e.key === 'ArrowDown') {
         e.preventDefault();
         setKeyboardNav(true);
         setSelectedIndex(prev => Math.min(prev + 1, items.length - 1));
-      } else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) {
+      } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setKeyboardNav(true);
         setSelectedIndex(prev => Math.max(prev - 1, 0));

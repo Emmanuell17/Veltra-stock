@@ -1,15 +1,7 @@
 const express = require('express');
-const router = express.Router();
+const { requireAuth } = require('../middleware/auth');
 
-/** Node 18+ has global fetch; older versions need node-fetch (see backend/package.json). */
-function httpFetch(url, options) {
-  if (typeof fetch === 'function') {
-    return fetch(url, options);
-  }
-  // eslint-disable-next-line global-require
-  const nodeFetch = require('node-fetch');
-  return nodeFetch(url, options);
-}
+const router = express.Router();
 
 const MAX_INVENTORY_CHARS = 28000;
 const MAX_USER_MESSAGE_CHARS = 4000;
@@ -60,7 +52,7 @@ function appendGeminiQuotaHint(message) {
   );
 }
 
-router.post('/chat', async (req, res) => {
+router.post('/chat', requireAuth, async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey || !String(apiKey).trim()) {
@@ -70,10 +62,7 @@ router.post('/chat', async (req, res) => {
       });
     }
 
-    const userEmail = req.headers['x-user-email'];
-    if (!userEmail) {
-      return res.status(401).json({ error: 'User email is required' });
-    }
+    const userEmail = req.user.email;
 
     const { messages, inventorySummary } = req.body || {};
 
@@ -141,7 +130,7 @@ router.post('/chat', async (req, res) => {
       },
     };
 
-    const response = await httpFetch(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -208,6 +197,6 @@ router.post('/chat', async (req, res) => {
         : 'Assistant request failed';
     res.status(500).json({ error: message });
   }
-}); 
+});
 
 module.exports = router;

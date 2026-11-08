@@ -5,57 +5,55 @@ import './ItemForm.css';
 import { GROCERY_CATEGORIES } from '../constants';
 import { getItem, createItem, updateItem } from '../services/firestoreService';
 
-// Log categories on load to verify they're correct
-console.log('Available categories:', GROCERY_CATEGORIES);
-
 function ItemForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const userEmail = currentUser?.email;
   const isEdit = !!id;
 
   const [formData, setFormData] = useState({
     name: '',
-    category: 'Fruits', // Default to first category
+    category: GROCERY_CATEGORIES[0],
     customCategory: '',
     quantity: '',
     price: '',
     expiration_date: ''
   });
-  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(isEdit);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (isEdit && currentUser?.email) {
-      fetchItem();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, currentUser]);
+    if (!isEdit || !userEmail) return undefined;
 
-  const fetchItem = async () => {
-    if (!currentUser?.email) return;
-
-    try {
-      setLoading(true);
-      const data = await getItem(id, currentUser.email);
-      // Check if category is in predefined list, otherwise set to "Other"
-      const isPredefinedCategory = GROCERY_CATEGORIES.includes(data.category);
-      setFormData({
-        name: data.name || '',
-        category: isPredefinedCategory ? data.category : 'Other',
-        customCategory: isPredefinedCategory ? '' : data.category,
-        quantity: data.quantity || '',
-        price: data.price || '',
-        expiration_date: data.expiration_date ? data.expiration_date.split('T')[0] : ''
+    let cancelled = false;
+    setFetching(true);
+    getItem(id, userEmail)
+      .then((data) => {
+        if (cancelled) return;
+        const isPredefinedCategory = GROCERY_CATEGORIES.includes(data.category);
+        setFormData({
+          name: data.name || '',
+          category: isPredefinedCategory ? data.category : 'Other',
+          customCategory: isPredefinedCategory ? '' : data.category,
+          quantity: data.quantity ?? '',
+          price: data.price ?? '',
+          expiration_date: data.expiration_date || ''
+        });
+        setError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setFetching(false);
       });
-      setError(null);
-    } catch (err) {
-      setError(err.message);
-      console.error('Error fetching item:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isEdit, userEmail]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -71,12 +69,12 @@ function ItemForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!currentUser?.email) {
+    if (!userEmail) {
       setError('You must be signed in to save items.');
       return;
     }
 
-    setLoading(true);
+    setSaving(true);
     setError(null);
 
     try {
@@ -89,21 +87,19 @@ function ItemForm() {
       };
 
       if (isEdit) {
-        await updateItem(id, payload, currentUser.email);
+        await updateItem(id, payload, userEmail);
       } else {
-        await createItem(payload, currentUser.email);
+        await createItem(payload, userEmail);
       }
 
       navigate('/dashboard');
     } catch (err) {
       setError(err.message);
-      console.error('Error saving item:', err);
-    } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  if (loading && isEdit) {
+  if (fetching) {
     return <div className="loading">Loading item...</div>;
   }
 
@@ -205,8 +201,8 @@ function ItemForm() {
         </div>
 
         <div className="form-actions">
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Saving...' : (isEdit ? 'Update Item' : 'Add Item')}
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? 'Saving...' : (isEdit ? 'Update Item' : 'Add Item')}
           </button>
           <button type="button" onClick={() => navigate('/dashboard')} className="btn btn-secondary">
             Cancel

@@ -1,42 +1,41 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper function to check if user is authenticated
     function isAuthenticated() {
-      return request.auth != null;
+      return request.auth != null && request.auth.token.email is string;
     }
-    
-    // Helper function to check if user owns the document
-    function isOwner(userEmail) {
-      return isAuthenticated() && 
-             resource.data.user_email == userEmail;
+
+    function ownsExisting() {
+      return isAuthenticated() && resource.data.user_email == request.auth.token.email;
     }
-    
-    // Grocery items collection
+
+    // Validates the document as it will look after the write.
+    function isValidItem(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 100 &&
+             data.quantity is int && data.quantity >= 0 &&
+             data.price is number && data.price >= 0 &&
+             (!('expiration_date' in data) || data.expiration_date == null ||
+               data.expiration_date is timestamp);
+    }
+
     match /grocery_items/{itemId} {
-      // Allow read if user is authenticated and owns the item
-      allow read: if isAuthenticated() && 
-                     resource.data.user_email == request.auth.token.email;
-      
-      // Allow create if user is authenticated and sets their own email
-      allow create: if isAuthenticated() && 
-                      request.resource.data.user_email == request.auth.token.email &&
-                      request.resource.data.name is string &&
-                      request.resource.data.category is string &&
-                      request.resource.data.quantity is int &&
-                      request.resource.data.price is number;
-      
-      // Allow update if user is authenticated and owns the item
-      allow update: if isAuthenticated() && 
-                       resource.data.user_email == request.auth.token.email &&
-                       request.resource.data.user_email == request.auth.token.email;
-      
-      // Allow delete if user is authenticated and owns the item
-      allow delete: if isAuthenticated() && 
-                       resource.data.user_email == request.auth.token.email;
+      allow read: if ownsExisting();
+
+      allow create: if isAuthenticated() &&
+                       request.resource.data.user_email == request.auth.token.email &&
+                       request.resource.data.created_at is timestamp &&
+                       isValidItem(request.resource.data);
+
+      // Ownership and created_at can't change; only the editable fields may.
+      allow update: if ownsExisting() &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['name', 'category', 'quantity', 'price', 'expiration_date', 'updated_at']) &&
+                       isValidItem(request.resource.data);
+
+      allow delete: if ownsExisting();
     }
-    
-    // Deny all other access
+
     match /{document=**} {
       allow read, write: if false;
     }

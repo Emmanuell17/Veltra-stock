@@ -1,172 +1,74 @@
-# Inventory Management System
+# Veltra Stock — Inventory Management System
 
-A simple and extensible inventory management system for a small grocery store, built with React, Node.js, Express, and PostgreSQL.
+A simple inventory manager for small grocery sellers. Items are stored in Firebase Firestore and users sign in with Google. A small Express backend powers the optional Gemini AI assistant.
 
 ## Features
 
-- ✅ Add new grocery items (name, category, quantity, price, expiration date)
-- ✅ Update item details
-- ✅ Delete items
-- ✅ View all items with search and filtering
-- ✅ Filter by category and low stock items
-- ✅ Visual indicators for low stock items (quantity < 10)
+- Add, edit and delete grocery items (name, category, quantity, price, expiration date)
+- Search, filter by category, and filter to low-stock (quantity < 10) or expiring-soon (within 14 days) items
+- Dashboard with item, category, low-stock and expiring-soon counts
+- AI assistant that answers questions about your current inventory
 
 ## Tech Stack
 
-- **Frontend**: React, React Router, CSS
-- **Backend**: Node.js, Express
-- **Database**: PostgreSQL
+- **Frontend**: React, React Router, Firebase Auth + Firestore (`frontend/`)
+- **Backend**: Node.js 22+, Express, Firebase Admin, Google Gemini API (`backend/`)
 
-## Prerequisites
+## Setup
 
-- Node.js (v14 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn
+### 1. Firebase
 
-## Setup Instructions
+Create a Firebase project with Google sign-in and Firestore enabled (see [FIREBASE_SETUP.md](FIREBASE_SETUP.md)), then publish the security rules from [`firestore.rules`](firestore.rules) in the Firebase Console under **Firestore Database → Rules**.
 
-### 1. Database Setup
+### 2. Frontend
 
-1. Make sure PostgreSQL is installed and running
-2. Create a new database:
-   ```sql
-   CREATE DATABASE inventory_db;
-   ```
-3. Run the schema file to create tables:
-   ```bash
-   psql -U postgres -d inventory_db -f backend/database/schema.sql
-   ```
-   Or connect to your database and run the SQL commands from `backend/database/schema.sql`
+```bash
+cd frontend
+npm install
+cp .env.example .env   # fill in your Firebase web app config
+npm start              # http://localhost:3002
+```
 
-### 2. Backend Setup
+### 3. Backend (only needed for the AI assistant)
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
+```bash
+cd backend
+npm install
+cp .env.example .env   # set FIREBASE_PROJECT_ID and GEMINI_API_KEY
+npm run dev            # http://localhost:5001
+```
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Create a `.env` file (copy from `.env.example`):
-   ```bash
-   cp .env.example .env
-   ```
-
-4. Update the `.env` file with your database credentials:
-   ```
-   PORT=5000
-   DB_HOST=localhost
-   DB_PORT=5432
-   DB_NAME=inventory_db
-   DB_USER=postgres
-   DB_PASSWORD=your_password_here
-   ```
-
-5. Start the backend server:
-   ```bash
-   npm run dev
-   ```
-   The server will run on `http://localhost:5000`
-
-### 3. Frontend Setup
-
-1. Open a new terminal and navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm start
-   ```
-   The app will open in your browser at `http://localhost:3002`
+In development the frontend proxies `/api` requests to `http://localhost:5001`. In production, set `REACT_APP_API_URL` on the frontend to the backend URL.
 
 ## Project Structure
 
 ```
-Inventory management system/
 ├── backend/
-│   ├── database/
-│   │   └── schema.sql          # Database schema and sample data
-│   ├── routes/
-│   │   └── items.js            # API routes for items
-│   ├── db.js                   # PostgreSQL connection
-│   ├── server.js               # Express server setup
-│   ├── package.json
-│   └── .env.example
+│   ├── middleware/auth.js      # Verifies Firebase ID tokens
+│   ├── routes/assistant.js     # POST /api/assistant/chat (Gemini)
+│   └── server.js               # Express server, CORS, health check
 ├── frontend/
-│   ├── public/
-│   │   └── index.html
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Header.js       # Navigation header
-│   │   │   ├── ItemList.js     # Main items listing page
-│   │   │   ├── ItemForm.js     # Add/Edit item form
-│   │   │   └── SearchFilters.js # Search and filter component
-│   │   ├── App.js
-│   │   ├── App.css
-│   │   ├── index.js
-│   │   └── index.css
-│   └── package.json
-├── .gitignore
-└── README.md
+│   └── src/
+│       ├── components/         # Dashboard, item form, filters, assistant UI
+│       ├── contexts/           # Google auth context
+│       ├── services/           # Firestore and assistant API clients
+│       └── utils/              # Inventory helpers (filters, dates, stock rules)
+├── firestore.rules             # Firestore security rules
+└── render.yaml                 # Render blueprint for the backend
 ```
 
-## API Endpoints
+## Backend API
 
-- `GET /api/items` - Get all items (supports query params: `search`, `category`, `lowStock`)
-- `GET /api/items/:id` - Get a single item by ID
-- `POST /api/items` - Create a new item
-- `PUT /api/items/:id` - Update an item
-- `DELETE /api/items/:id` - Delete an item
-- `GET /api/items/meta/categories` - Get all unique categories
+All routes except the health check require an `Authorization: Bearer <Firebase ID token>` header.
 
-## Usage
+- `GET /api/health` — health check
+- `POST /api/assistant/chat` — body `{ messages, inventorySummary }`, returns `{ reply }`
 
-1. **View Items**: Navigate to the home page to see all items in a table format
-2. **Add Item**: Click "Add Item" button and fill in the form
-3. **Edit Item**: Click "Edit" on any item row
-4. **Delete Item**: Click "Delete" on any item row (confirmation required)
-5. **Search**: Use the search box to filter by name or category
-6. **Filter**: Use the category dropdown or "Low Stock Only" checkbox
+## Deployment
 
-## Low Stock Indicator
-
-Items with quantity less than 10 are highlighted in yellow and marked with red text for easy identification.
-
-## Future Extensions
-
-This system is designed to be easily extensible. Some ideas for future enhancements:
-
-- User authentication and authorization
-- Barcode scanning
-- Inventory reports and analytics
-- Supplier management
-- Purchase orders
-- Sales tracking
-- Expiration date alerts
-- Bulk import/export
-- Image uploads for items
+- Frontend: Vercel, see [frontend/VERCEL_DEPLOYMENT.md](frontend/VERCEL_DEPLOYMENT.md)
+- Backend: Render, see [backend/RENDER_DEPLOYMENT.md](backend/RENDER_DEPLOYMENT.md)
 
 ## License
 
 This project is open source and available for educational purposes.
-
-
-
-
-
-
-
-
-
-
-

@@ -7,7 +7,7 @@
 1. Open a terminal window
 2. Navigate to backend folder:
    ```bash
-   cd "/Users/odu_1/Inventory management system/backend"
+   cd backend
    ```
 3. Start the server:
    ```bash
@@ -15,8 +15,7 @@
    ```
 4. **Wait until you see:**
    ```
-   ✅ Server is running on port 5001
-   ✅ Database connection successful
+   Server is running on port 5001 (development)
    ```
 5. **Keep this terminal open** - the server must keep running
 
@@ -25,7 +24,7 @@
 1. Open a **NEW** terminal window (keep Terminal 1 running!)
 2. Navigate to frontend folder:
    ```bash
-   cd "/Users/odu_1/Inventory management system/frontend"
+   cd frontend
    ```
 3. Start the React app:
    ```bash
@@ -37,10 +36,9 @@
 
 **Backend Terminal Should Show:**
 ```
-✅ Server is running on port 5001
-📡 API available at http://localhost:5001/api
-✅ Database connection successful
+Server is running on port 5001 (development)
 ```
+No warnings about `FIREBASE_PROJECT_ID` or `GEMINI_API_KEY` (set them in `backend/.env`).
 
 **Frontend Terminal Should Show:**
 ```
@@ -58,9 +56,8 @@ webpack compiled successfully
 - **Solution**: Make sure the backend is running in Terminal 1
 - Check: `curl http://localhost:5001/api/health` should return JSON
 
-### "Database connection failed"
-- Check `.env` file has correct `DB_USER=Emmanuel`
-- Make sure PostgreSQL is running
+### AI assistant says "not configured"
+- Set `FIREBASE_PROJECT_ID` and `GEMINI_API_KEY` in `backend/.env`, then restart the backend
 
 ### Frontend shows blank/white screen
 - Check browser console (F12) for errors
@@ -74,13 +71,3 @@ curl http://localhost:5001/api/health
 ```
 
 Should return: `{"status":"ok","message":"Server is running"}`
-
-
-
-
-
-
-
-
-
-
